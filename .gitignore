@@ -1,0 +1,28 @@
+# Node
+node_modules
+.pnpm-store
+
+# Next
+.next
+out
+
+# Env
+.env
+.env.*
+
+# Logs
+logs
+*.log
+
+# OS
+.DS_Store
+
+# PDFs
+*.pdf
+
+# Zip
+*.zip
+
+# Build
+dist
+build
