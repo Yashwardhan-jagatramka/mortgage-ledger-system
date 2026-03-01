@@ -8,4 +8,6 @@ export interface ExtractedTransaction {
   surveyNumbers: string[];
   plotNumber: string | null;
   extent: string | null;
+  buyerName: string | null;
+  sellerName: string | null;
 }
