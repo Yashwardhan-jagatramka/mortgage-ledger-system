@@ -29,7 +29,7 @@ export default function DocumentsPage() {
   const fetchDocuments = async () => {
     try {
       const res = await axios.get(
-        "http://localhost:4000/documents",
+        `${process.env.NEXT_PUBLIC_API_URL}/documents`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -65,7 +65,7 @@ export default function DocumentsPage() {
       setUploading(true);
 
       await axios.post(
-        "http://localhost:4000/documents/upload",
+        `${process.env.NEXT_PUBLIC_API_URL}/documents/upload`,
         formData,
         {
           headers: {
@@ -95,7 +95,7 @@ export default function DocumentsPage() {
 
     try {
       await axios.delete(
-        `http://localhost:4000/documents/${id}`,
+        `${process.env.NEXT_PUBLIC_API_URL}/documents/${id}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,

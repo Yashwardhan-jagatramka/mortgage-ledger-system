@@ -19,7 +19,7 @@ export default function SignupPage() {
       setLoading(true);
       setError("");
 
-      await axios.post("http://localhost:4000/auth/register", {
+      await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
         email,
         password,
       });

@@ -3,7 +3,7 @@ dotenv.config();
 import { createServer } from "./app/server.js";
 import { logger } from "./infrastructure/logger.js";
 
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;
 
 const app = createServer();
 

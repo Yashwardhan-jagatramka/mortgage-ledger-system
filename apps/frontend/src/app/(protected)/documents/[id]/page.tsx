@@ -52,7 +52,7 @@ export default function DocumentDetailsPage() {
   // ---------------- Fetch Document ----------------
   const fetchDocument = async () => {
     const res = await axios.get(
-      `http://localhost:4000/documents/${documentId}`,
+      `${process.env.NEXT_PUBLIC_API_URL}/documents/${documentId}`,
       {
         headers: { Authorization: `Bearer ${token}` },
       }
@@ -65,7 +65,7 @@ export default function DocumentDetailsPage() {
     setLoading(true);
 
     const res = await axios.get(
-      `http://localhost:4000/documents/${documentId}/transactions`,
+      `${process.env.NEXT_PUBLIC_API_URL}/documents/${documentId}/transactions`,
       {
         headers: { Authorization: `Bearer ${token}` },
         params: {
@@ -100,7 +100,7 @@ export default function DocumentDetailsPage() {
     ) {
       const interval = setInterval(async () => {
         const res = await axios.get(
-          `http://localhost:4000/documents/${documentId}`,
+          `${process.env.NEXT_PUBLIC_API_URL}/documents/${documentId}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -155,7 +155,7 @@ export default function DocumentDetailsPage() {
   const handleSubmit = async () => {
     try {
       await axios.put(
-        `http://localhost:4000/documents/${documentId}/manual`,
+        `${process.env.NEXT_PUBLIC_API_URL}/documents/${documentId}/manual`,
         { transactions },
         {
           headers: {
