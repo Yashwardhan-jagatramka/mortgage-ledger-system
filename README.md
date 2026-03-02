@@ -89,6 +89,7 @@ Every document and transaction is user-scoped.
 | Object Storage | MinIO (S3 compatible) |
 | Worker | Node.js Service |
 | Extraction | Regex + Gemini AI |
+| Translation | Google Translation API |
 | Authentication | JWT |
 
 ---
@@ -117,7 +118,9 @@ Every document and transaction is user-scoped.
 - Downloads PDF from MinIO
 - Extracts raw text
 - Runs hybrid extraction pipeline
+- Translate Tamil to English
 - Stores results in DB
+- Cache in Redis
 - Updates confidence and status
 
 ### 4️⃣ Infrastructure
@@ -178,7 +181,7 @@ Regex-first design ensures:
 - High performance
 - No external API dependency
 
-## Step 3 — Optional AI Recovery (Gemini)
+## Step 3 — AI FallBack (Gemini)
 
 If:
 
@@ -247,7 +250,7 @@ System behavior:
 
 - Gracefully provide valid transaction details got from Regex
 - Marks document as MANUAL_REQUIRED
-- Preserves extracted data
+- Preserves extracted data from Regex
 - Avoids system crash
 - Ensures no valid data is lost
 
@@ -308,6 +311,7 @@ S3_ACCESS_KEY=minio
 S3_SECRET_KEY=minio123
 S3_BUCKET_NAME=documents
 GEMINI_API_KEY=your_api_key_here
+GOOGLE_TRANSLATE_API_KEY=your_google_translate_api_key_here
 
 ---
 
