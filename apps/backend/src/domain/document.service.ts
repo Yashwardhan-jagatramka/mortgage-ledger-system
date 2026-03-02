@@ -243,9 +243,6 @@ export class DocumentService {
     userId: string,
     transactions: any[]
   ) {
-    /**
-     * 🔐 Validate ownership
-     */
     const doc = await this.repo.getById(
       documentId,
       userId
@@ -255,15 +252,13 @@ export class DocumentService {
       throw new Error("Document not found");
     }
 
-    /**
-     * 🧠 Validate document state
-     */
+    // 🔥 Only block if still running
     if (
-      doc.status !== "MANUAL_REQUIRED" &&
-      doc.status !== "FAILED"
+      doc.status === "PENDING" ||
+      doc.status === "PROCESSING"
     ) {
       throw new Error(
-        "Manual override allowed only when review required"
+        "Cannot override while document is processing"
       );
     }
 
@@ -271,9 +266,6 @@ export class DocumentService {
       throw new Error("Transactions cannot be empty");
     }
 
-    /**
-     * 🗄 Replace transactions (atomic DB operation)
-     */
     await this.repo.replaceTransactions(
       documentId,
       transactions

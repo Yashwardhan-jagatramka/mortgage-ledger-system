@@ -4,11 +4,6 @@ import { ExtractedTransaction } from "./transaction.types.js";
  * -------------------------------------------------------
  * Normalize Tamil Text
  * -------------------------------------------------------
- * Fixes:
- * - Broken spacing between Tamil letters
- * - Double dots ".."
- * - Trailing hyphen
- * - Multiple spaces
  */
 function normalizeTamil(text: string): string {
   return text
@@ -23,33 +18,13 @@ function normalizeTamil(text: string): string {
  * -------------------------------------------------------
  * Extract Buyer & Seller Names
  * -------------------------------------------------------
- *
- * Strategy:
- * 1. Use original stable line-based regex.
- * 2. If only one match but contains multiple numbers,
- *    split manually (edge case fix).
- *
- * This avoids breaking earlier working transactions.
  */
 function extractBuyerSeller(block: string) {
-
-  /**
-   * 🔹 Original stable logic:
-   * Match lines like:
-   * 1. Name
-   * 2. Name
-   */
   const lineMatches =
     block.match(/\d+\.\s+[^\n]+/g) || [];
 
   let matches = lineMatches;
 
-  /**
-   * 🔥 Edge Case:
-   * If only one line matched but contains multiple numbered names
-   * Example:
-   * 1. A   1. B
-   */
   if (
     lineMatches.length === 1 &&
     (lineMatches[0].match(/\d+\./g)?.length ?? 0) > 1
@@ -59,15 +34,9 @@ function extractBuyerSeller(block: string) {
   }
 
   if (matches.length === 0) {
-    return {
-      sellerName: null,
-      buyerName: null,
-    };
+    return { sellerName: null, buyerName: null };
   }
 
-  /**
-   * Clean extracted names
-   */
   const cleaned = matches
     .map(line =>
       normalizeTamil(
@@ -76,9 +45,6 @@ function extractBuyerSeller(block: string) {
     )
     .filter(Boolean);
 
-  /**
-   * If only one party found → treat as seller
-   */
   if (cleaned.length === 1) {
     return {
       sellerName: cleaned[0],
@@ -86,17 +52,52 @@ function extractBuyerSeller(block: string) {
     };
   }
 
-  /**
-   * Split evenly:
-   * First half → sellers
-   * Second half → buyers
-   */
   const midpoint = Math.ceil(cleaned.length / 2);
 
   return {
     sellerName: cleaned.slice(0, midpoint).join(", "),
     buyerName: cleaned.slice(midpoint).join(", "),
   };
+}
+
+/**
+ * -------------------------------------------------------
+ * Extract Nature Structurally
+ * -------------------------------------------------------
+ * Capture anything between registration date and
+ * "Consideration Value"
+ */
+function extractNature(block: string): string | null {
+  const lines = block
+    .split("\n")
+    .map(l => l.trim())
+    .filter(Boolean);
+
+  // Look for known nature-like keywords
+  const natureKeywords = [
+    "Conveyance",
+    "Power of Attorney",
+    "Deposit of Title Deeds",
+    "Mortgage",
+    "Settlement",
+    "Gift",
+    "Sale",
+    "Metro/UA"
+  ];
+
+  for (const line of lines) {
+    if (
+      natureKeywords.some(keyword =>
+        line.toLowerCase().includes(keyword.toLowerCase())
+      )
+    ) {
+      return line.length <= 100
+        ? line
+        : line.slice(0, 100);
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -113,9 +114,6 @@ export function extractTransaction(
 
   const dateMatches =
     block.match(/\d{2}-[A-Za-z]{3}-\d{4}/g);
-
-  const natureMatch =
-    block.match(/Conveyance/i);
 
   const rupeeMatches = [
     ...block.matchAll(/ரூ\s*\.\s*([\d,]+)/g),
@@ -140,13 +138,22 @@ export function extractTransaction(
     docNo: docNoMatch?.[0] ?? null,
     executionDate: dateMatches?.[0] ?? null,
     registrationDate: dateMatches?.[1] ?? null,
-    nature: natureMatch ? "Conveyance" : null,
+
+    // 🔥 New structural nature extraction
+    nature: extractNature(block),
+
     considerationValue: rupeeMatches[0]
       ? rupeeMatches[0][1].replace(/,/g, "")
       : null,
-    marketValue: rupeeMatches[1]
-      ? rupeeMatches[1][1].replace(/,/g, "")
-      : null,
+
+    // More tolerant market value extraction
+    marketValue:
+      rupeeMatches[1]
+        ? rupeeMatches[1][1].replace(/,/g, "")
+        : rupeeMatches[0]
+        ? rupeeMatches[0][1].replace(/,/g, "")
+        : null,
+
     surveyNumbers: surveyMatch
       ? Array.from(
           new Set(
@@ -159,10 +166,13 @@ export function extractTransaction(
           )
         )
       : [],
+
     plotNumber: plotMatch
       ? plotMatch[1].match(/\d+/)?.[0] ?? null
       : null,
+
     extent: extentMatch?.[1] ?? null,
+
     sellerName,
     buyerName,
   };

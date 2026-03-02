@@ -6,18 +6,6 @@ import { s3, BUCKET_NAME } from "../../infrastructure/s3.client.js";
 import { v4 as uuidv4 } from "uuid";
 import { authMiddleware } from "../../middleware/auth.middleware.js";
 
-/**
- * Route Layer
- * -----------
- * Responsibilities:
- * - Parse HTTP request
- * - Call service layer
- * - Return HTTP response
- *
- * All routes here are mounted under:
- * app.use("/documents", documentRoutes)
- */
-
 const router = Router();
 const service = new DocumentService();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -40,6 +28,9 @@ router.post(
       const documentId = uuidv4();
       const key = `${documentId}.pdf`;
 
+      /**
+       * Upload to MinIO / S3
+       */
       await s3.send(
         new PutObjectCommand({
           Bucket: BUCKET_NAME,
@@ -49,8 +40,20 @@ router.post(
         })
       );
 
-      const fileUrl = `http://localhost:9000/${BUCKET_NAME}/${key}`;
+      /**
+       * Construct file URL using S3_ENDPOINT from env
+       */
+      const endpoint = process.env.S3_ENDPOINT;
 
+      if (!endpoint) {
+        throw new Error("S3_ENDPOINT not configured");
+      }
+
+      const fileUrl = `${endpoint}/${BUCKET_NAME}/${key}`;
+
+      /**
+       * Store document metadata
+       */
       const result = await service.createDocument(
         userId,
         req.file.originalname,
@@ -61,6 +64,7 @@ router.post(
         ...result,
         fileUrl,
       });
+
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -68,7 +72,7 @@ router.post(
 );
 
 /**
- * ✅ List My Documents
+ * List My Documents
  * GET /documents
  */
 router.get(
@@ -132,6 +136,7 @@ router.get("/:id/transactions", authMiddleware, async (req: any, res) => {
       count: transactions.length,
       data: transactions,
     });
+
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
@@ -154,6 +159,7 @@ router.put("/:id/manual", authMiddleware, async (req: any, res) => {
     );
 
     res.json(result);
+
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
@@ -162,10 +168,6 @@ router.put("/:id/manual", authMiddleware, async (req: any, res) => {
 /**
  * Delete Document
  * DELETE /documents/:id
- *
- * - User scoped
- * - Deletes document
- * - Cascades transactions automatically
  */
 router.delete("/:id", authMiddleware, async (req: any, res) => {
   try {
@@ -175,6 +177,7 @@ router.delete("/:id", authMiddleware, async (req: any, res) => {
     await service.deleteDocument(id, userId);
 
     res.json({ message: "Document deleted successfully" });
+
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }

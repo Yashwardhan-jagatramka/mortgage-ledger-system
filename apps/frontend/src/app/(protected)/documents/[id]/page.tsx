@@ -8,6 +8,7 @@ import StatusBadge from "@/components/documents/StatusBadge";
 type Document = {
   id: string;
   fileName: string;
+  fileUrl: string;
   status: string;
   confidence: number;
   progress?: number;
@@ -24,6 +25,9 @@ type Transaction = {
   nature: string;
   buyerName?: string;
   sellerName?: string;
+  buyerNameEnglish?: string;
+  sellerNameEnglish?: string;
+  natureEnglish?: string;
   considerationValue: string;
   marketValue: string;
 };
@@ -37,7 +41,6 @@ export default function DocumentDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
 
-  // Filters
   const [docNoFilter, setDocNoFilter] = useState("");
   const [buyerFilter, setBuyerFilter] = useState("");
   const [sellerFilter, setSellerFilter] = useState("");
@@ -49,18 +52,14 @@ export default function DocumentDetailsPage() {
       ? localStorage.getItem("token")
       : null;
 
-  // ---------------- Fetch Document ----------------
   const fetchDocument = async () => {
     const res = await axios.get(
       `${process.env.NEXT_PUBLIC_API_URL}/documents/${documentId}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
+      { headers: { Authorization: `Bearer ${token}` } }
     );
     setDocument(res.data);
   };
 
-  // ---------------- Fetch Transactions ----------------
   const fetchTransactions = async () => {
     setLoading(true);
 
@@ -82,15 +81,12 @@ export default function DocumentDetailsPage() {
     setLoading(false);
   };
 
-  // ---------------- Initial Load ----------------
   useEffect(() => {
     if (!documentId) return;
-
     fetchDocument();
     fetchTransactions();
   }, [documentId]);
 
-  // ---------------- 🔥 Real-Time Polling ----------------
   useEffect(() => {
     if (!document) return;
 
@@ -101,16 +97,11 @@ export default function DocumentDetailsPage() {
       const interval = setInterval(async () => {
         const res = await axios.get(
           `${process.env.NEXT_PUBLIC_API_URL}/documents/${documentId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
+          { headers: { Authorization: `Bearer ${token}` } }
         );
 
         setDocument(res.data);
 
-        // If processing finished → refresh transactions
         if (
           res.data.status === "COMPLETED" ||
           res.data.status === "MANUAL_REQUIRED"
@@ -123,10 +114,9 @@ export default function DocumentDetailsPage() {
     }
   }, [document?.status]);
 
-  // ---------------- Filters Effect ----------------
+  // 🔥 Filters effect restored
   useEffect(() => {
     if (!documentId) return;
-
     const debounce = setTimeout(fetchTransactions, 400);
     return () => clearTimeout(debounce);
   }, [
@@ -138,36 +128,18 @@ export default function DocumentDetailsPage() {
     plotFilter,
   ]);
 
-  // ---------------- Handle Edit Changes ----------------
-  const handleChange = (
-    id: string,
-    field: string,
-    value: any
-  ) => {
-    setTransactions((prev) =>
-      prev.map((tx) =>
-        tx.id === id ? { ...tx, [field]: value } : tx
-      )
-    );
-  };
-
-  // ---------------- Submit Manual Override ----------------
   const handleSubmit = async () => {
     try {
       await axios.put(
         `${process.env.NEXT_PUBLIC_API_URL}/documents/${documentId}/manual`,
         { transactions },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       setEditMode(false);
       fetchDocument();
       fetchTransactions();
-    } catch (err) {
+    } catch {
       alert("Failed to save changes");
     }
   };
@@ -175,19 +147,32 @@ export default function DocumentDetailsPage() {
   if (!document) return null;
 
   return (
-    <div className="space-y-8">
-      {/* ================= HEADER ================= */}
-      <div className="flex justify-between items-start">
+    <div className="h-[90vh] flex gap-6">
+      {/* LEFT: PDF */}
+      <div className="w-1/2 border rounded-xl shadow-lg overflow-hidden bg-base-100">
+        <div className="p-4 border-b font-semibold bg-base-200">
+          PDF Preview
+        </div>
+        {document.fileUrl ? (
+          <iframe src={document.fileUrl} className="w-full h-full" />
+        ) : (
+          <div className="p-6 text-center opacity-60">
+            PDF not available
+          </div>
+        )}
+      </div>
+
+      {/* RIGHT SIDE */}
+      <div className="w-1/2 flex flex-col space-y-6 overflow-auto">
         <div>
-          <h2 className="text-3xl font-bold">
+          <h2 className="text-2xl font-bold">
             {document.fileName}
           </h2>
 
-          <div className="flex gap-4 mt-3 items-center">
+          <div className="flex gap-4 mt-3 items-center flex-wrap">
             <StatusBadge status={document.status} />
 
-            {/* 🔥 Processing Progress */}
-            <div className="w-64">
+            <div className="w-56">
               <progress
                 className="progress progress-primary w-full"
                 value={document.progress || 0}
@@ -198,8 +183,7 @@ export default function DocumentDetailsPage() {
               </div>
             </div>
 
-            {/* Confidence */}
-            <div className="w-64">
+            <div className="w-56">
               <progress
                 className="progress progress-success w-full"
                 value={document.confidence}
@@ -210,155 +194,152 @@ export default function DocumentDetailsPage() {
               </div>
             </div>
 
-            <div className="text-sm opacity-60">
-              Created:{" "}
-              {new Date(
-                document.createdAt
-              ).toLocaleDateString()}
-            </div>
+            {/* 🔥 Manual Override ALWAYS AVAILABLE */}
+            {!editMode && (
+              <button
+                className="btn btn-error ml-auto"
+                onClick={() => setEditMode(true)}
+              >
+                Manual Override
+              </button>
+            )}
           </div>
         </div>
 
-        {document.status === "MANUAL_REQUIRED" &&
-          !editMode && (
-            <button
-              className="btn btn-error"
-              onClick={() => setEditMode(true)}
-            >
-              Manual Override
-            </button>
-          )}
-      </div>
-
-      {/* ================= FILTERS ================= */}
-      {!editMode && (
-        <div className="card bg-base-100 shadow-sm p-5">
-          <h3 className="font-semibold mb-4">
-            Filters
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <input
-              className="input input-bordered"
-              placeholder="Document No"
-              value={docNoFilter}
-              onChange={(e) =>
-                setDocNoFilter(e.target.value)
-              }
-            />
-            <input
-              className="input input-bordered"
-              placeholder="Buyer Name"
-              value={buyerFilter}
-              onChange={(e) =>
-                setBuyerFilter(e.target.value)
-              }
-            />
-            <input
-              className="input input-bordered"
-              placeholder="Seller Name"
-              value={sellerFilter}
-              onChange={(e) =>
-                setSellerFilter(e.target.value)
-              }
-            />
-            <input
-              className="input input-bordered"
-              placeholder="Survey No"
-              value={surveyFilter}
-              onChange={(e) =>
-                setSurveyFilter(e.target.value)
-              }
-            />
-            <input
-              className="input input-bordered"
-              placeholder="Plot No"
-              value={plotFilter}
-              onChange={(e) =>
-                setPlotFilter(e.target.value)
-              }
-            />
+        {/* 🔥 FILTERS RESTORED */}
+        {!editMode && (
+          <div className="card bg-base-100 shadow-sm p-5">
+            <h3 className="font-semibold mb-4">Filters</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input className="input input-bordered" placeholder="Document No" value={docNoFilter} onChange={(e) => setDocNoFilter(e.target.value)} />
+              <input className="input input-bordered" placeholder="Buyer Name" value={buyerFilter} onChange={(e) => setBuyerFilter(e.target.value)} />
+              <input className="input input-bordered" placeholder="Seller Name" value={sellerFilter} onChange={(e) => setSellerFilter(e.target.value)} />
+              <input className="input input-bordered" placeholder="Survey No" value={surveyFilter} onChange={(e) => setSurveyFilter(e.target.value)} />
+              <input className="input input-bordered" placeholder="Plot No" value={plotFilter} onChange={(e) => setPlotFilter(e.target.value)} />
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ================= TRANSACTIONS ================= */}
-      <div className="card bg-base-100 shadow-md">
-        <div className="card-body">
-          <h3 className="text-xl font-semibold mb-4">
-            Transactions ({transactions.length})
-          </h3>
+        {/* TRANSACTIONS */}
+        <div className="card bg-base-100 shadow-md">
+          <div className="card-body">
+            <h3 className="text-lg font-semibold mb-4">
+              Transactions ({transactions.length})
+            </h3>
 
-          {loading ? (
-            <div className="flex justify-center py-10">
-              <span className="loading loading-spinner loading-lg"></span>
-            </div>
-          ) : transactions.length === 0 ? (
-            <div className="text-center py-10 opacity-60">
-              {document.status === "PENDING" ||
-              document.status === "PROCESSING"
-                ? "Processing document..."
-                : "No transactions found."}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="table table-zebra">
-                <thead>
-                  <tr>
-                    <th>Doc No</th>
-                    <th>Execution</th>
-                    <th>Registration</th>
-                    <th>Survey</th>
-                    <th>Plot</th>
-                    <th>Nature</th>
-                    <th>Buyer</th>
-                    <th>Seller</th>
-                    <th>Consideration</th>
-                    <th>Market</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {transactions.map((tx) => (
-                    <tr key={tx.id}>
-                      <td>{tx.docNo}</td>
-                      <td>{tx.executionDate || "-"}</td>
-                      <td>{tx.registrationDate || "-"}</td>
-                      <td>
-                        {Array.isArray(tx.surveyNumbers)
-                          ? tx.surveyNumbers.join(", ")
-                          : "-"}
-                      </td>
-                      <td>{tx.plotNumber || "-"}</td>
-                      <td>{tx.nature}</td>
-                      <td>{tx.buyerName || "-"}</td>
-                      <td>{tx.sellerName || "-"}</td>
-                      <td>{tx.considerationValue}</td>
-                      <td>{tx.marketValue}</td>
+            {loading ? (
+              <div className="flex justify-center py-10">
+                <span className="loading loading-spinner loading-lg"></span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="table table-zebra text-sm">
+                  <thead>
+                    <tr>
+                      <th>Doc No</th>
+                      <th>Buyer</th>
+                      <th>Seller</th>
+                      <th>Survey</th>
+                      <th>Plot</th>
+                      <th>Value</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {transactions.map((tx) => (
+                      <tr key={tx.id}>
+                        <td>{editMode ? (
+                          <input className="input input-sm input-bordered w-full"
+                            value={tx.docNo || ""}
+                            onChange={(e) =>
+                              setTransactions(prev =>
+                                prev.map(t =>
+                                  t.id === tx.id ? { ...t, docNo: e.target.value } : t
+                                )
+                              )
+                            } />
+                        ) : tx.docNo}</td>
 
-          {editMode && (
-            <div className="flex justify-end gap-4 mt-6">
-              <button
-                className="btn btn-outline"
-                onClick={() => setEditMode(false)}
-              >
-                Cancel
-              </button>
+                        <td>{editMode ? (
+                          <input className="input input-sm input-bordered w-full"
+                            value={tx.buyerName || ""}
+                            onChange={(e) =>
+                              setTransactions(prev =>
+                                prev.map(t =>
+                                  t.id === tx.id ? { ...t, buyerName: e.target.value } : t
+                                )
+                              )
+                            } />
+                        ) : tx.buyerNameEnglish || tx.buyerName || "-"}</td>
 
-              <button
-                className="btn btn-success"
-                onClick={handleSubmit}
-              >
-                Save Changes
-              </button>
-            </div>
-          )}
+                        <td>{editMode ? (
+                          <input className="input input-sm input-bordered w-full"
+                            value={tx.sellerName || ""}
+                            onChange={(e) =>
+                              setTransactions(prev =>
+                                prev.map(t =>
+                                  t.id === tx.id ? { ...t, sellerName: e.target.value } : t
+                                )
+                              )
+                            } />
+                        ) : tx.sellerNameEnglish || tx.sellerName || "-"}</td>
+
+                        <td>{editMode ? (
+                          <input className="input input-sm input-bordered w-full"
+                            value={tx.surveyNumbers?.join(", ") || ""}
+                            onChange={(e) =>
+                              setTransactions(prev =>
+                                prev.map(t =>
+                                  t.id === tx.id
+                                    ? {
+                                        ...t,
+                                        surveyNumbers: e.target.value
+                                          .split(",")
+                                          .map(s => s.trim())
+                                          .filter(Boolean),
+                                      }
+                                    : t
+                                )
+                              )
+                            } />
+                        ) : tx.surveyNumbers?.join(", ") || "-"}</td>
+
+                        <td>{editMode ? (
+                          <input className="input input-sm input-bordered w-full"
+                            value={tx.plotNumber || ""}
+                            onChange={(e) =>
+                              setTransactions(prev =>
+                                prev.map(t =>
+                                  t.id === tx.id ? { ...t, plotNumber: e.target.value } : t
+                                )
+                              )
+                            } />
+                        ) : tx.plotNumber || "-"}</td>
+
+                        <td>{editMode ? (
+                          <input className="input input-sm input-bordered w-full"
+                            value={tx.considerationValue || ""}
+                            onChange={(e) =>
+                              setTransactions(prev =>
+                                prev.map(t =>
+                                  t.id === tx.id ? { ...t, considerationValue: e.target.value } : t
+                                )
+                              )
+                            } />
+                        ) : tx.considerationValue}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {editMode && (
+              <div className="flex justify-end gap-4 mt-6">
+                <button className="btn btn-outline" onClick={() => setEditMode(false)}>Cancel</button>
+                <button className="btn btn-success" onClick={handleSubmit}>Save Changes</button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

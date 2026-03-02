@@ -6,6 +6,7 @@ import { redis } from "../infrastructure/redis.client.js";
 
 import { ExtractionOrchestrator } from "./extraction/extraction.orchestrator.js";
 import { PdfReader } from "./pdf/pdf.reader.js";
+import { TranslationService } from "./translation/translation.service.js";
 
 import { db, documents, transactions, eq } from "@mortgage/db";
 
@@ -16,18 +17,36 @@ import { db, documents, transactions, eq } from "@mortgage/db";
  * - Downloading PDF
  * - Extracting text
  * - Running extraction pipeline
+ * - Translating structured fields (batch)
  * - Storing results
  * - Updating document status
  * - Warming Redis cache
  */
 export class DocumentProcessor {
   private repo = new DocumentRepository();
+  private translator = new TranslationService();
 
   /**
    * Default cache key for full transaction fetch (no filters)
    */
   private baseCacheKey(documentId: string) {
     return `document:${documentId}:transactions:ALL`;
+  }
+
+  /**
+   * Normalize Tamil OCR spacing artifacts
+   * Example:
+   * "வி .. அ ரு ணகி ரி"
+   * becomes
+   * "வி அருணகிரி"
+   */
+  private normalizeTamil(text?: string | null) {
+    if (!text) return null;
+
+    return text
+      .replace(/\s+/g, " ")
+      .replace(/\s?\.\.\s?/g, " ")
+      .trim();
   }
 
   async process(documentId: string) {
@@ -81,17 +100,46 @@ export class DocumentProcessor {
         "Hybrid extraction result"
       );
 
-      await this.repo.updateProgress(documentId, 70);
+      await this.repo.updateProgress(documentId, 60);
 
       /**
-       * 🔹 5. Store transactions in DB (Atomic)
+       * 🔥 5. Normalize Tamil fields before translation
+       */
+      for (const t of extractedTransactions) {
+        t.buyerName = this.normalizeTamil(t.buyerName);
+        t.sellerName = this.normalizeTamil(t.sellerName);
+        t.nature = this.normalizeTamil(t.nature);
+      }
+
+      /**
+       * 🔥 6. Batch Translation (Single Gemini Call)
+       * Safe fallback if translation fails
+       */
+      let enrichedTransactions = extractedTransactions;
+
+      try {
+        enrichedTransactions =
+          await this.translator.translateTransactions(
+            extractedTransactions
+          );
+      } catch (err) {
+        logger.warn(
+          { documentId },
+          "Translation failed — continuing without English fields"
+        );
+      }
+
+      await this.repo.updateProgress(documentId, 75);
+
+      /**
+       * 🔹 7. Store transactions in DB (Atomic)
        */
       await db.transaction(async (txDb) => {
         await txDb
           .delete(transactions)
           .where(eq(transactions.documentId, documentId));
 
-        for (const t of extractedTransactions) {
+        for (const t of enrichedTransactions) {
           await txDb.insert(transactions).values({
             documentId,
             docNo: t.docNo ?? null,
@@ -121,26 +169,23 @@ export class DocumentProcessor {
       });
 
       /**
-       * 🔥 6. CACHE WARMING (Performance Boost)
-       *
-       * We proactively cache the full transaction list
-       * so first user fetch hits Redis immediately.
+       * 🔥 8. Cache Warming (Performance Boost)
        */
       const cacheKey = this.baseCacheKey(documentId);
 
       await redis.set(
         cacheKey,
-        JSON.stringify(extractedTransactions),
+        JSON.stringify(enrichedTransactions),
         "EX",
         21600 // 6 hours
       );
 
       /**
-       * 🔹 7. Status Handling
+       * 🔹 9. Status Handling
        */
       if (confidence >= 0.95) {
         await this.repo.updateStatus(documentId, "COMPLETED");
-      } else if (extractedTransactions.length > 0) {
+      } else if (enrichedTransactions.length > 0) {
         await this.repo.updateStatus(documentId, "MANUAL_REQUIRED");
       } else {
         await this.repo.markFailed(

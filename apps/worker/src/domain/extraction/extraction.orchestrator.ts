@@ -8,7 +8,6 @@ function isValidTransaction(tx: any): boolean {
     !!tx.docNo &&
     !!tx.executionDate &&
     !!tx.registrationDate &&
-    !!tx.nature &&
     !!tx.considerationValue &&
     !!tx.marketValue
   );
