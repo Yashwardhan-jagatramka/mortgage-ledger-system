@@ -14,6 +14,7 @@
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1000.0",
+    "@google-cloud/translate": "^9.3.0",
     "@google/generative-ai": "^0.24.1",
     "@mortgage/db": "workspace:*",
     "dotenv": "^17.3.1",

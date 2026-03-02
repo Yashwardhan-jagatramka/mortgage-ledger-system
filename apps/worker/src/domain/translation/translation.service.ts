@@ -1,117 +1,154 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { v2 } from "@google-cloud/translate";
+import { redis } from "../../infrastructure/redis.client.js";
+import { logger } from "../../infrastructure/logger.js";
 
 /**
  * TranslationService
  * ------------------
- * Responsible ONLY for translating structured fields.
+ * Production-grade translation layer using Google Cloud Translate (v2).
  *
- * Uses batch translation to:
- * - Reduce API calls
- * - Avoid rate limits
- * - Improve performance
- *
- * Language-agnostic.
+ * Responsibilities:
+ * - Translate ONLY buyerName & sellerName
+ * - Batch translation
+ * - Redis caching per name
+ * - Avoid duplicate API calls
+ * - Fail safely (never break document processing)
  */
-export class TranslationService {
 
-  private model;
+export class TranslationService {
+  private translate: v2.Translate;
 
   constructor() {
-    const key = process.env.GEMINI_API_KEY;
+    const key = process.env.GOOGLE_TRANSLATE_API_KEY;
 
     if (!key) {
-      throw new Error("GEMINI_API_KEY not set");
+      throw new Error("GOOGLE_TRANSLATE_API_KEY not set");
     }
 
-    const genAI = new GoogleGenerativeAI(key);
-
-    this.model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+    // ✅ Correct initialization for @google-cloud/translate v9+
+    this.translate = new v2.Translate({
+      key,
     });
   }
 
   /**
-   * Detect if text likely needs translation.
-   * Avoid unnecessary API calls for already-English text.
+   * Detect if text contains non-ASCII (Tamil etc.)
+   * Avoid unnecessary API calls.
    */
   private needsTranslation(text?: string | null): boolean {
     if (!text) return false;
-
-    // If contains non-latin characters → translate
     return /[^\u0000-\u007f]/.test(text);
   }
 
   /**
-   * Batch translate structured transaction fields.
+   * Redis cache key for individual name translation
+   */
+  private cacheKey(text: string) {
+    return `translate:${text}`;
+  }
+
+  /**
+   * Main entry point
    */
   async translateTransactions(transactions: any[]) {
     if (!transactions.length) return transactions;
 
     /**
-     * 1️⃣ Collect unique values that need translation
+     * 1️⃣ Collect unique Tamil names (buyer + seller only)
      */
-    const uniqueValues = new Set<string>();
+    const uniqueNames = new Set<string>();
 
     for (const tx of transactions) {
-      if (this.needsTranslation(tx.nature)) {
-        uniqueValues.add(tx.nature);
-      }
       if (this.needsTranslation(tx.buyerName)) {
-        uniqueValues.add(tx.buyerName);
+        uniqueNames.add(tx.buyerName);
       }
+
       if (this.needsTranslation(tx.sellerName)) {
-        uniqueValues.add(tx.sellerName);
+        uniqueNames.add(tx.sellerName);
       }
     }
 
-    if (uniqueValues.size === 0) {
-      return transactions; // nothing to translate
+    if (uniqueNames.size === 0) {
+      return transactions;
     }
 
-    const valuesArray = Array.from(uniqueValues);
+    const namesArray = Array.from(uniqueNames);
 
     /**
-     * 2️⃣ Send single batch prompt
+     * 2️⃣ Check Redis cache first
      */
-    const prompt = `
-You are a professional legal document translator.
+    const translationsMap: Record<string, string> = {};
+    const namesToTranslate: string[] = [];
 
-Translate the following phrases into English.
+    for (const name of namesArray) {
+      const cached = await redis.get(this.cacheKey(name));
 
-Return ONLY valid JSON in this format:
-
-{
-  "original_text": "translated_text"
-}
-
-Phrases:
-${valuesArray.map((v, i) => `${i + 1}. ${v}`).join("\n")}
-`;
-
-    const result = await this.model.generateContent(prompt);
-    const raw = result.response.text().trim();
-
-    const jsonStart = raw.indexOf("{");
-    const jsonEnd = raw.lastIndexOf("}");
-
-    if (jsonStart === -1 || jsonEnd === -1) {
-      throw new Error("Invalid translation response");
+      if (cached) {
+        translationsMap[name] = cached;
+      } else {
+        namesToTranslate.push(name);
+      }
     }
 
-    const cleanJson = raw.slice(jsonStart, jsonEnd + 1);
-    const translationsMap = JSON.parse(cleanJson);
+    /**
+     * 3️⃣ Batch call Google in chunks (avoid API limits)
+     */
+    if (namesToTranslate.length > 0) {
+      try {
+        const CHUNK_SIZE = 50;
+        const chunks: string[][] = [];
+
+        for (let i = 0; i < namesToTranslate.length; i += CHUNK_SIZE) {
+          chunks.push(namesToTranslate.slice(i, i + CHUNK_SIZE));
+        }
+
+        for (const chunk of chunks) {
+          const [translations] = await this.translate.translate(chunk, "en");
+
+          const translatedArray = Array.isArray(translations)
+            ? translations
+            : [translations];
+
+          chunk.forEach((original, index) => {
+            const translated = translatedArray[index];
+
+            translationsMap[original] = translated;
+
+            redis.set(
+              this.cacheKey(original),
+              translated,
+              "EX",
+              86400
+            );
+          });
+        }
+
+        logger.info(
+          {
+            totalRequested: namesToTranslate.length,
+            chunkCount: chunks.length,
+          },
+          "Chunked translation completed"
+        );
+      } catch (err: any) {
+        logger.warn(
+          { error: err?.message },
+          "Google translation failed — skipping English enrichment"
+        );
+
+        return transactions;
+      }
+    }
 
     /**
-     * 3️⃣ Map translations back to transactions
+     * 4️⃣ Map translations back
      */
     return transactions.map((tx) => ({
       ...tx,
-      natureEnglish:
-        translationsMap[tx.nature] ?? tx.nature,
       buyerNameEnglish:
-        translationsMap[tx.buyerName] ?? tx.buyerName,
+        translationsMap[tx.buyerName] ?? tx.buyerName ?? null,
       sellerNameEnglish:
-        translationsMap[tx.sellerName] ?? tx.sellerName,
+        translationsMap[tx.sellerName] ?? tx.sellerName ?? null,
     }));
   }
 }

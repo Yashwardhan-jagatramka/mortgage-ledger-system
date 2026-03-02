@@ -20,27 +20,49 @@ function normalizeTamil(text: string): string {
  * -------------------------------------------------------
  */
 function extractBuyerSeller(block: string) {
-  const lineMatches =
-    block.match(/\d+\.\s+[^\n]+/g) || [];
 
-  let matches = lineMatches;
+  // 🔥 Step 1: First try original pattern
+  let matches: string[] =
+  block.match(/\d+\.\s+[^\n]+/g) ?? [];
 
+  /**
+   * 🔥 Fix 1:
+   * If multiple numbered entries are on same line,
+   * split them properly.
+   */
   if (
-    lineMatches.length === 1 &&
-    (lineMatches[0].match(/\d+\./g)?.length ?? 0) > 1
+    matches.length === 1 &&
+    (matches[0].match(/\d+\./g)?.length ?? 0) > 1
   ) {
     matches =
-      lineMatches[0].match(/\d+\.\s+[^0-9]+/g) || [];
+      matches[0].match(/\d+\.\s+[^0-9]+/g) || [];
+  }
+
+  /**
+   * 🔥 Fix 2:
+   * If still empty, try global match (handles weird flattening)
+   */
+  if (matches.length === 0) {
+    matches =
+      [...block.matchAll(/(\d+)\.\s*([^\d\n]+)/g)]
+        .map(m => `${m[1]}. ${m[2]}`) || [];
   }
 
   if (matches.length === 0) {
     return { sellerName: null, buyerName: null };
   }
 
+  /**
+   * Clean extracted names
+   */
   const cleaned = matches
     .map(line =>
       normalizeTamil(
-        line.replace(/^\d+\.\s+/, "")
+        line
+          .replace(/^\d+\.\s+/, "")
+          .replace(/\(.*?\)/g, "")
+          .replace(/-$/, "")
+          .trim()
       )
     )
     .filter(Boolean);
@@ -52,6 +74,10 @@ function extractBuyerSeller(block: string) {
     };
   }
 
+  /**
+   * Keep your original midpoint logic
+   * (since it was mostly correct)
+   */
   const midpoint = Math.ceil(cleaned.length / 2);
 
   return {
