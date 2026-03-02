@@ -133,9 +133,13 @@ For local development, the documents bucket must allow public read access to ena
 To make the bucket public:
 
 docker ps
+
 docker exec -it <minio-container-name> sh
+
 mc alias set local http://localhost:9000 minio minio123
+
 mc anonymous set public local/documents
+
 
 This allows:
 
